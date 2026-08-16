@@ -86,6 +86,7 @@ Defaults are deliberate; most users need none of this. Override per profile in `
 
 | Option | Default | Meaning |
 |---|---|---|
+| `mode` | `enforce` | `enforce` masks the wire. `monitor` is a shadow mode — counts and logs what WOULD be masked but sends real values to the provider; useful for building trust before enforcing |
 | `keywords` | `[]` | Extra literal keywords to mask (added to all built-in detectors) |
 | `regions` | all | Geo rule packs to enable: `CN`, `US` (universal rules are always on) |
 | `maskSystem` | `true` | Mask the system prompt slot too — project instructions (AGENTS.md etc.) can carry secrets |
@@ -98,6 +99,20 @@ Defaults are deliberate; most users need none of this. Override per profile in `
 - Placeholder mapping lives in memory, one mapping per dsh session, shared by main-loop, title, and compaction calls. No custom session events are written: dsh currently refuses to load logs containing event types unknown to the harness, and persistence isn't needed anyway — the log stores real values, so the next request re-masks deterministically.
 - Sensitive-free requests take a zero-overhead passthrough (`next()`, original request, no stream wrapping).
 - **Masking fails closed** (if a string exceeds the engine's input cap the request is refused rather than sent unmasked); **restore fails open** (on a restore error the masked text passes through with a warning — masking is the security boundary and it already happened).
+
+## Observing it: the log line and the `/llmasking` command
+
+Every masked turn writes one receipt line to the dsh log (counts and entity types only — never values):
+
+```
+llmasking: 3 value(s) masked on the wire this turn (PHONE, EMAIL, SECRET)
+```
+
+The `/llmasking` slash command (works in the TUI and the Web UI) is the receipt and the self-test:
+
+- `/llmasking` — status: mode, detector config, this session's masking stats, totals since load
+- `/llmasking verify` — runs a sentinel value through the real masking pipeline locally (zero network) and shows the before/after: `My phone number is 13800138000…` → `…[PHONE_1]…`. PASS means the pipeline is live
+- `/llmasking status` — same as the bare command
 
 ## How do I know it is working?
 

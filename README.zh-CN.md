@@ -85,6 +85,7 @@ dsh plugin --profile my add github:yolorouter/dsh-llmasking
 
 | 选项 | 默认 | 含义 |
 |---|---|---|
+| `mode` | `enforce` | `enforce` 掩码上线。`monitor` 是影子模式——统计并记录"本会掩码什么"，但真值照常发给服务商；适合先建立信任再启用 |
 | `keywords` | `[]` | 额外掩码的字面关键词（叠加在内置检测器之上） |
 | `regions` | 全部 | 启用的地域规则包：`CN`、`US`（通用规则恒开启） |
 | `maskSystem` | `true` | 系统提示词也脱敏——项目指令（AGENTS.md 等）可能携带密钥 |
@@ -97,6 +98,20 @@ dsh plugin --profile my add github:yolorouter/dsh-llmasking
 - 占位符映射存内存，每个 dsh 会话一份，主循环、标题、压缩调用共享。不写自定义会话事件：dsh 当前会拒绝加载含未知事件类型的日志，而且也无需持久化——日志存真值，下次请求从真值确定性重新脱敏。
 - 整个请求无敏感值时走零开销直通（`next()`，原请求，不包流）。
 - **脱敏失败即关闭**（单个字符串超出引擎输入上限时拒绝整个请求，绝不放行未脱敏内容）；**还原失败即放行**（还原出错时带告警透传掩码文本——脱敏才是安全边界，且已经发生）。
+
+## 观测它：日志行和 `/llmasking` 命令
+
+每个脱敏轮次向 dsh 日志写一行收据（只报数量和实体类型，永不报值）：
+
+```
+llmasking: 3 value(s) masked on the wire this turn (PHONE, EMAIL, SECRET)
+```
+
+`/llmasking` 斜杠命令（TUI 和 Web UI 都可用）就是收据和自检：
+
+- `/llmasking` —— 状态：模式、检测器配置、本会话脱敏统计、加载以来累计
+- `/llmasking verify` —— 本地跑一次哨兵值过真实脱敏管线（零网络），显示前后对照：`My phone number is 13800138000…` → `…[PHONE_1]…`。PASS 即管线活着
+- `/llmasking status` —— 同裸命令
 
 ## 怎么知道它在工作？
 

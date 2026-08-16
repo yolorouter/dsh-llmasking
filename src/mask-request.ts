@@ -13,6 +13,8 @@ export interface MaskOutcome {
   request: GenerateOptions
   /** Whether any value was masked (gates the re-dispatch and stream wrapping). */
   maskedAnything: boolean
+  /** Entity types masked in this request (observability; never values). */
+  maskedEntities: string[]
 }
 
 /**
@@ -39,7 +41,12 @@ export function maskRequest(
   session: Session,
   opts: MaskRequestOptions,
 ): MaskOutcome {
-  const transform = (text: string): string => session.anonymize(text).masked
+  const maskedEntities = new Set<string>()
+  const transform = (text: string): string => {
+    const { masked, events } = session.anonymize(text)
+    for (const event of events) maskedEntities.add(event.entity)
+    return masked
+  }
   let changed = false
 
   let system = options.system
@@ -60,14 +67,14 @@ export function maskRequest(
     return message
   })
 
-  if (!changed) return { request: options, maskedAnything: false }
+  if (!changed) return { request: options, maskedAnything: false, maskedEntities: [] }
 
   const request: GenerateOptions = {
     ...options,
     ...(system !== options.system ? { system } : {}),
     messages,
   }
-  return { request: markMaskedRequest(deepFreeze(request)), maskedAnything: true }
+  return { request: markMaskedRequest(deepFreeze(request)), maskedAnything: true, maskedEntities: [...maskedEntities] }
 }
 
 /**

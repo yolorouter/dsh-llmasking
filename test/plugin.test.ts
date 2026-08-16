@@ -5,7 +5,7 @@ import { apply, type Config } from '../src/index.js'
 import { collect, EMAIL, PHONE, SECRET_KEY, userMessage } from './helpers.js'
 
 function makeConfig(overrides: Partial<Config> = {}): Config {
-  return { keywords: [], regions: [], maskSystem: true, teachModel: false, ...overrides }
+  return { mode: 'enforce', keywords: [], regions: [], maskSystem: true, teachModel: false, ...overrides }
 }
 
 function request(overrides: Partial<GenerateOptions> = {}): GenerateOptions {
@@ -44,6 +44,8 @@ function makeFakeCtx() {
     },
   }
   const seen: GenerateOptions[] = []
+  const logs = { info: [] as string[], warn: [] as string[] }
+  const registeredCommands: Array<{ name: string; description: string; handler: (invocation: unknown) => unknown }> = []
   let adapter: ((options: GenerateOptions) => StreamChunk[]) | undefined
 
   const ctx = {
@@ -67,7 +69,18 @@ function makeFakeCtx() {
       },
     },
     logger: {
-      warn: () => {},
+      info: (message: string) => {
+        logs.info.push(message)
+      },
+      warn: (message: string) => {
+        logs.warn.push(message)
+      },
+    },
+    commands: {
+      register(contribution: { name: string; description: string; handler: (invocation: unknown) => unknown }) {
+        registeredCommands.push(contribution)
+        return () => {}
+      },
     },
     llm: {
       // The real waterfall: our re-dispatch comes back through here, the
@@ -91,6 +104,8 @@ function makeFakeCtx() {
   return {
     ctx: ctx as unknown as Context,
     seen,
+    logs,
+    registeredCommands,
     injects,
     systemPrompt,
     disposers,
@@ -220,7 +235,8 @@ describe('dsh-llmasking plugin (waterfall simulation)', () => {
   it('teachModel contributes a system-prompt section through the optional service', () => {
     const withTeach = makeFakeCtx()
     apply(withTeach.ctx, makeConfig({ teachModel: true }))
-    expect(withTeach.injects).toEqual([{ deps: ['systemPrompt'], callback: expect.any(Function) }])
+    expect(withTeach.injects.some((i) => i.deps.includes('systemPrompt'))).toBe(true)
+    expect(withTeach.injects.some((i) => i.deps.includes('commands'))).toBe(true)
     withTeach.injects[0]?.callback({ systemPrompt: withTeach.systemPrompt })
     expect(withTeach.systemPrompt.sections).toEqual([
       { name: 'llmasking', order: 150, text: expect.stringContaining('[PHONE_1]') },
@@ -228,7 +244,8 @@ describe('dsh-llmasking plugin (waterfall simulation)', () => {
 
     const withoutTeach = makeFakeCtx()
     apply(withoutTeach.ctx, makeConfig({ teachModel: false }))
-    expect(withoutTeach.injects).toEqual([])
+    expect(withoutTeach.injects.some((i) => i.deps.includes('systemPrompt'))).toBe(false)
+    expect(withoutTeach.injects.some((i) => i.deps.includes('commands'))).toBe(true)
   })
 
   it('plugin dispose drops all masking state', async () => {
@@ -248,5 +265,89 @@ describe('dsh-llmasking plugin (waterfall simulation)', () => {
     for (const dispose of fx.disposers) dispose()
     await collect(fx.dispatch(request({ messages: [userMessage(PHONE)] })))
     expect(fx.seen[2]?.messages[0]?.content[0]).toMatchObject({ text: '[PHONE_1]' })
+  })
+})
+
+describe('dsh-llmasking observability (v0.1.1)', () => {
+  function callCommand(fx: ReturnType<typeof makeFakeCtx>, rawInput: string, sessionId = 'sess-1') {
+    const command = fx.registeredCommands.find((c) => c.name === 'llmasking')
+    if (!command) throw new Error('llmasking command not registered')
+    return command.handler({
+      rawInput,
+      agent: { session: { id: sessionId } },
+      signal: new AbortController().signal,
+    }) as { kind: string; text: string }
+  }
+  function mountCommand(fx: ReturnType<typeof makeFakeCtx>) {
+    const injected = fx.injects.find((i) => i.deps.includes('commands'))
+    injected?.callback({ commands: { register: (c: never) => fx.registeredCommands.push(c) } })
+  }
+
+  it('logs one receipt line per masked turn (counts + entity types, never values)', async () => {
+    const fx = makeFakeCtx()
+    apply(fx.ctx, makeConfig())
+    fx.setAdapter(() => [{ type: 'finish', reason: 'stop' as never }])
+    await collect(fx.dispatch(request({ messages: [userMessage(`call ${PHONE}`)] })))
+    const line = fx.logs.info.find((l) => l.includes('masked on the wire'))
+    expect(line).toBeDefined()
+    expect(line).toContain('PHONE')
+    expect(line).not.toContain(PHONE) // never the value itself
+  })
+
+  it('monitor mode is a shadow: counts, logs, but sends the ORIGINAL unmasked request', async () => {
+    const fx = makeFakeCtx()
+    apply(fx.ctx, makeConfig({ mode: 'monitor' }))
+    fx.setAdapter(() => [{ type: 'finish', reason: 'stop' as never }])
+    const original = request({ messages: [userMessage(`call ${PHONE}`)] })
+    await collect(fx.dispatch(original))
+    // BY DESIGN in monitor mode: the adapter sees the real value.
+    expect(fx.seen[0]).toBe(original)
+    expect(JSON.stringify(fx.seen[0])).toContain(PHONE)
+    const line = fx.logs.info.find((l) => l.includes('[monitor]'))
+    expect(line).toContain('would mask')
+    expect(line).toContain('PHONE')
+  })
+
+  it('rejects an invalid mode at load (fail loud)', () => {
+    const fx = makeFakeCtx()
+    expect(() => apply(fx.ctx, makeConfig({ mode: 'sometimes' }))).toThrow(/invalid mode/)
+  })
+
+  it('registers the /llmasking command through the optional commands service', () => {
+    const fx = makeFakeCtx()
+    apply(fx.ctx, makeConfig())
+    expect(fx.injects.some((i) => i.deps.includes('commands'))).toBe(true)
+    mountCommand(fx)
+    expect(fx.registeredCommands.some((c) => c.name === 'llmasking')).toBe(true)
+  })
+
+  it('/llmasking status shows per-session and total receipts', async () => {
+    const fx = makeFakeCtx()
+    apply(fx.ctx, makeConfig())
+    fx.setAdapter(() => [{ type: 'finish', reason: 'stop' as never }])
+    await collect(fx.dispatch(request()))
+    mountCommand(fx)
+    const result = callCommand(fx, '')
+    expect(result.kind).toBe('success')
+    expect(result.text).toContain('mode: enforce')
+    expect(result.text).toContain('this session')
+    expect(result.text).toContain('EMAIL')
+  })
+
+  it('/llmasking verify runs the sentinel through the real pipeline', () => {
+    const fx = makeFakeCtx()
+    apply(fx.ctx, makeConfig())
+    mountCommand(fx)
+    const result = callCommand(fx, 'verify')
+    expect(result.kind).toBe('success')
+    expect(result.text).toContain('PASS')
+    expect(result.text).toContain('[PHONE_1]')
+  })
+
+  it('/llmasking rejects unknown subcommands', () => {
+    const fx = makeFakeCtx()
+    apply(fx.ctx, makeConfig())
+    mountCommand(fx)
+    expect(callCommand(fx, 'explode').kind).toBe('error')
   })
 })
