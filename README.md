@@ -20,19 +20,52 @@ The threat model is **logs keep truth, the wire carries masks**: your dsh sessio
 
 Powered by the [llmasking](https://www.npmjs.com/package/llmasking) engine: universal detectors (email, bank card with Luhn check, IP, URL, international phone, secret family: cloud keys / PEM / JWT / git tokens / high-entropy passwords), CN rules (mobile, ID card with ISO 7064 check, landline), US rules (SSN, phone), plus your own keywords. Same value → same placeholder within a session; **secrets are redacted one-way** (`[SECRET_1]` never maps back).
 
-## Install
+## Quick start
 
-Requires Node ≥ 22 and dsh `0.1.0-rc.6` or newer.
+**1. Install dsh** (skip if you already run it — needs Node ≥ 22, dsh ≥ `0.1.0-rc.6`):
 
 ```sh
-dsh plugin --profile your-profile add dsh-llmasking
-dsh --profile your-profile          # that's it
+npm install -g @deepseek-ai/dsh
+dsh --version
 ```
 
-Install from GitHub instead (installs source; pnpm ≥ 10 will ask you to allow the build script — only do this for sources you trust):
+**2. Install the plugin into a profile.** Pick any profile name — dsh initializes it with `dsh-base` on first use:
 
 ```sh
-dsh plugin --profile your-profile add github:yolorouter/dsh-llmasking
+dsh plugin --profile my add dsh-llmasking
+```
+
+**3. Boot it:**
+
+```sh
+dsh --profile my
+```
+
+**4. Configure a model.** In the Web UI: Settings → Models — set your Base URL and API key (dsh stores credentials under `$DSH_HOME`, never in the repo). Or edit `~/.dsh/settings.yaml`:
+
+```yaml
+llm-deepseek:
+  baseURL: https://api.deepseek.com
+```
+
+…with your key in `$DSH_HOME/.credentials.yaml` or the `DEEPSEEK_API_KEY` environment variable.
+
+**5. Verify the plugin is active** (two ways):
+
+```sh
+dsh --profile my --dump-config | grep -A1 "id: llmasking"
+```
+
+or in the Web UI: Settings → Plugins → search `llmasking` → status should be **active**.
+
+**6. See it work** — run the [secret-echo test](#how-do-i-know-it-is-working) below. That's the whole setup.
+
+### Installing from GitHub instead
+
+Installs source rather than the npm build; pnpm ≥ 10 will ask you to allow the build script — only do this for sources you trust:
+
+```sh
+dsh plugin --profile my add github:yolorouter/dsh-llmasking
 # then follow pnpm's hint: add "dsh-llmasking: true" under allowBuilds
 # in the profile's pnpm-workspace.yaml and re-run
 ```

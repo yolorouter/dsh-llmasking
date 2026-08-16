@@ -19,19 +19,52 @@
 
 底层是 [llmasking](https://www.npmjs.com/package/llmasking) 引擎：通用检测器（邮箱、银行卡 Luhn 校验、IP、URL、国际电话、密钥族：云密钥 / PEM / JWT / git token / 高熵口令）、中国规则（手机号、身份证 ISO 7064 校验、固话）、美国规则（SSN、电话），外加自定义关键词。同一会话内同值同占位符；**密钥族单向脱敏**（`[SECRET_1]` 永不还原）。
 
-## 安装
+## 快速开始
 
-需要 Node ≥ 22 与 dsh `0.1.0-rc.6` 及以上。
+**1. 安装 dsh**（已在用可跳过——需要 Node ≥ 22、dsh ≥ `0.1.0-rc.6`）：
 
 ```sh
-dsh plugin --profile your-profile add dsh-llmasking
-dsh --profile your-profile          # 完事了
+npm install -g @deepseek-ai/dsh
+dsh --version
 ```
 
-从 GitHub 安装（装的是源码；pnpm ≥ 10 会要求你放行构建脚本——只对你信任的来源这样做）：
+**2. 把插件装进一个 profile。** 名字随意——首次使用时 dsh 会自动用 `dsh-base` 初始化该 profile：
 
 ```sh
-dsh plugin --profile your-profile add github:yolorouter/dsh-llmasking
+dsh plugin --profile my add dsh-llmasking
+```
+
+**3. 启动：**
+
+```sh
+dsh --profile my
+```
+
+**4. 配置模型。** Web UI 里：设置 → 模型——填 Base URL 和 API key（dsh 把凭据存在 `$DSH_HOME`，不进仓库）。或编辑 `~/.dsh/settings.yaml`：
+
+```yaml
+llm-deepseek:
+  baseURL: https://api.deepseek.com
+```
+
+key 放在 `$DSH_HOME/.credentials.yaml` 或环境变量 `DEEPSEEK_API_KEY`。
+
+**5. 确认插件已激活**（两种方式）：
+
+```sh
+dsh --profile my --dump-config | grep -A1 "id: llmasking"
+```
+
+或在 Web UI：设置 → 插件 → 搜索 `llmasking` → 状态应为 **active**。
+
+**6. 看它工作**——跑下面[怎么知道它在工作](#怎么知道它在工作)的密钥回显测试。装完即用，无需其他配置。
+
+### 从 GitHub 安装
+
+装的是源码而非 npm 构建产物；pnpm ≥ 10 会要求放行构建脚本——只对你信任的来源这样做：
+
+```sh
+dsh plugin --profile my add github:yolorouter/dsh-llmasking
 # 然后按 pnpm 提示：在 profile 的 pnpm-workspace.yaml 里 allowBuilds 下
 # 加 "dsh-llmasking: true"，重新执行
 ```
