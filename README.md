@@ -1,5 +1,7 @@
 # dsh-llmasking
 
+🌐 **English** · [简体中文](README.zh-CN.md)
+
 **Transport-layer data masking for [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) (dsh): sensitive values never leave the process on their way to the model — while your session log, UI, and tool executions keep seeing real values, restored live in the stream.**
 
 ```
@@ -70,6 +72,31 @@ dsh plugin --profile my add github:yolorouter/dsh-llmasking
 # in the profile's pnpm-workspace.yaml and re-run
 ```
 
+### Upgrade, disable, uninstall
+
+```sh
+dsh plugin --profile my update dsh-llmasking   # upgrade to the latest npm release
+dsh plugin --profile my remove dsh-llmasking   # uninstall (removes the dependency AND the layer)
+```
+
+To temporarily disable without uninstalling, add this to the profile's `cordis.patch.yml` and remove it to re-enable:
+
+```yaml
+- replace:
+    - id: llmasking
+      disabled: true
+```
+
+## Compatibility
+
+| | |
+|---|---|
+| dsh | `0.1.0-rc.6` — last verified **2026-08-16** (typecheck pinned to rc.6 types; see `package.json` devDependencies) |
+| Node | ≥ 22 |
+| Verified install paths | npm registry (`dsh plugin --profile my add dsh-llmasking`), local link — both exercised end-to-end (mask → stream restore → tool write-back) on 2026-08-16 |
+
+dsh moves fast; if a newer dsh breaks the plugin, pin your profile's dsh or open an issue — the public surface this plugin touches is the documented `llm/stream` waterfall, `systemPrompt.section`, and `ctx.commands`.
+
 ## Configuration
 
 Defaults are deliberate; most users need none of this. Override per profile in `cordis.patch.yml` (row config replaces wholesale, no deep merge):
@@ -114,6 +141,14 @@ The `/llmasking` slash command (works in the TUI and the Web UI) is the receipt 
 - `/llmasking verify` — runs a sentinel value through the real masking pipeline locally (zero network) and shows the before/after: `My phone number is 13800138000…` → `…[PHONE_1]…`. PASS means the pipeline is live
 - `/llmasking status` — same as the bare command
 
+## Permissions & data
+
+- **Files**: none of yours. The plugin writes nothing and reads no user files — the only disk read is its own package manifest (for the version string); the placeholder mapping lives in memory and dies with the process.
+- **Network**: none of its own. It has no endpoints, telemetry, or third-party calls — it only transforms the requests dsh was already sending.
+- **Credentials**: none. API keys travel in adapter headers the plugin never sees (it sits above the adapter, and `GenerateOptions` carries no key material).
+- **Session data**: masking derives from conversation content already in the session log. Statistics (`/llmasking`, log receipts) record counts and entity TYPES only — never values.
+- **What leaves the process**: the masked request (placeholders instead of values). Nothing else is added.
+
 ## How do I know it is working?
 
 The plugin is invisible by design — your logs, UI, and tool executions all show real values. Two ways to see the masking with your own eyes:
@@ -137,6 +172,16 @@ In the reply, the phone number appears as the real value (restored), while the k
 - **Chunk-log fragments of tool arguments keep placeholders.** Only the assembled block (what tools execute and what the durable message stores) is guaranteed restored; dsh's in-tree adapters always emit it, but a hypothetical delta-only adapter would leave tool arguments masked. Tool arguments that DO get masked are re-serialized, which may normalize JSON number formatting (`1e2` → `100`) and collapse duplicate keys.
 - **Mapping is per-process.** After a restart or fork, placeholders re-number deterministically from the real-value log (the first masked phone is `[PHONE_1]` again), but cross-fork numbering is not inherited.
 
+## Troubleshooting
+
+- **Is it even loaded?** Web UI → Settings → Plugins → search `llmasking` → status should be **active**. Or: `dsh --profile my --dump-config | grep -A1 "id: llmasking"`.
+- **Quick self-test**: `/llmasking verify` runs a sentinel value through the real pipeline locally (zero network) — PASS means masking is live.
+- **`Error: unknown tool ""` after a tool call**: that is a gateway/upstream bug, not this plugin — some OpenAI-compatible gateways emit empty `id`/`name` on tool-call continuation chunks, which dsh assembles into a nameless call. Verify by pointing the same dsh at the official provider endpoint; if it works there, report it to your gateway (we hit exactly this with one gateway on 2026-08-16 and documented the fix: the gateway must not forward empty-string `id`/`name` on continuation chunks).
+- **Nothing gets masked?** Check `mode` is not `monitor`, check `regions` (e.g. `regions: ["CN"]` disables US rules such as SSN), and remember secrets need label context (`OPENAI_API_KEY=sk-...` masks; a bare `sk-...` string does not).
+- **Restore problems**: restore failures degrade open — masked text passes through and a warning containing `restore failed` is logged; see log location below.
+- **Where are the logs?** dsh writes to the standard output of the process that started it (the terminal running `dsh --profile my`, or the service console for a Web deployment); dsh does not write a log file by default. The plugin's receipt lines all start with `llmasking:`.
+- **Rollback**: to stop the behavior immediately, disable the plugin (see the patch snippet above under Quick start) — it takes effect on reload. To pin/roll back the version: `dsh plugin --profile my add dsh-llmasking@0.1.0` (the profile's pnpm then holds that exact version).
+
 ## Development
 
 ```sh
@@ -147,6 +192,8 @@ npm run build
 
 The test suite includes a zero-leak assertion: the fake provider-side adapter asserts it never received a real phone, email, or API key.
 
-## License
+## License & security
 
 MIT — same as the [llmasking](https://github.com/yolorouter/llmasking-ts) engine it builds on.
+
+Found a security issue (e.g. a value that reaches the provider unmasked)? Please report it privately via [GitHub Security Advisories](https://github.com/yolorouter/dsh-llmasking/security/advisories/new) instead of a public issue.

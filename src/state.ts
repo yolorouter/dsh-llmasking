@@ -10,6 +10,11 @@ export interface MaskingStats {
   readonly entities: ReadonlyMap<string, number>
 }
 
+/** The one owner of the "zeroed stats = nothing masked" convention. */
+export function hasMasked(stats: MaskingStats): boolean {
+  return stats.maskedCount > 0
+}
+
 function freshStats(): { maskedCount: number; turnsMasked: number; entities: Map<string, number> } {
   return { maskedCount: 0, turnsMasked: 0, entities: new Map() }
 }
@@ -67,15 +72,28 @@ export class MaskingStates {
     if (entry) bump(entry.stats)
   }
 
-  /** Read-only counters for one dsh session, if it ever masked anything. */
-  statsFor(sessionId: string): MaskingStats | undefined {
+  /**
+   * Snapshot of the counters for one dsh session. Always a fresh copy —
+   * later record() calls never mutate a reference a consumer still holds
+   * (the command surface renders between requests).
+   */
+  statsFor(sessionId: string): MaskingStats {
     const entry = this.sessions.get(sessionId)
-    return entry && entry.stats.maskedCount > 0 ? entry.stats : undefined
+    if (entry === undefined || !hasMasked(entry.stats)) return freshStats()
+    return {
+      maskedCount: entry.stats.maskedCount,
+      turnsMasked: entry.stats.turnsMasked,
+      entities: new Map(entry.stats.entities),
+    }
   }
 
-  /** Aggregate counters since plugin load. */
+  /** Snapshot of the aggregate counters since plugin load (same guarantee). */
   get totalsView(): MaskingStats {
-    return this.totals
+    return {
+      maskedCount: this.totals.maskedCount,
+      turnsMasked: this.totals.turnsMasked,
+      entities: new Map(this.totals.entities),
+    }
   }
 
   /** Number of dsh sessions holding live mappings. */

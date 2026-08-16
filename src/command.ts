@@ -1,11 +1,11 @@
-import type { MaskingStats } from './state.js'
+import { hasMasked, type MaskingStats } from './state.js'
 
 export interface CommandDeps {
   version: string
   mode: 'enforce' | 'monitor'
   regions: readonly string[]
   keywords: readonly string[]
-  statsFor(sessionId: string): MaskingStats | undefined
+  statsFor(sessionId: string): MaskingStats
   totals(): MaskingStats
   sessionsTracked(): number
   /** Runs the sentinel self-test through the real masking pipeline. */
@@ -44,15 +44,19 @@ export function handleLlmaskingCommand(rawInput: string, sessionId: string | und
     }
   }
 
-  const session = sessionId === undefined ? undefined : deps.statsFor(sessionId)
   const totals = deps.totals()
+  let sessionLine = 'session: (none in this invocation)'
+  if (sessionId !== undefined) {
+    const session = deps.statsFor(sessionId)
+    sessionLine = `this session: ${hasMasked(session) ? renderStats(session) : 'nothing masked yet'}`
+  }
   return {
     kind: 'success',
     text: [
       `llmasking v${deps.version} — transport-layer masking`,
       `mode: ${deps.mode}${deps.mode === 'monitor' ? ' (NOT enforcing: real values reach the provider)' : ''}`,
       `detectors: regions ${deps.regions.length > 0 ? deps.regions.join('+') : 'all'}, keywords ${deps.keywords.length}`,
-      sessionId === undefined ? 'session: (none in this invocation)' : `this session: ${session ? renderStats(session) : 'nothing masked yet'}`,
+      sessionLine,
       `since load: ${renderStats(totals)}; ${deps.sessionsTracked()} session(s) mapped`,
     ].join('\n'),
   }

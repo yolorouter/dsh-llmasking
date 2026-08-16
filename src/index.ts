@@ -4,6 +4,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-commands'
+import { createRequire } from 'node:module'
 import z from '@deepseek-ai/schemastery'
 import { Engine } from 'llmasking'
 import { handleLlmaskingCommand } from './command.js'
@@ -48,7 +49,10 @@ const TEACH_SECTION = [
   'Reproduce placeholders verbatim when referring to the original value — in prose, in files you write, and in tool arguments. Never invent, guess, complete, or try to decode them.',
 ].join(' ')
 
-const VERSION = '0.1.1'
+// Single source of truth: the package manifest next to this module (repo
+// root, also shipped in the npm tarball). createRequire keeps it JSON-import
+// attribute free across the supported Node range.
+const { version: VERSION } = createRequire(import.meta.url)('../package.json') as { version: string }
 
 const SENTINEL_INPUT = 'My phone number is 13800138000, email john@example.com.'
 
@@ -84,7 +88,7 @@ export function apply(ctx: Context, config: Config): void {
       name: 'llmasking',
       description: 'llmasking status, masking stats, and self-verify',
       handler: (invocation) =>
-        handleLlmaskingCommand(invocation.rawInput, invocation.agent?.session?.id, {
+        handleLlmaskingCommand(invocation.rawInput, invocation.agent.session.id, {
           version: VERSION,
           mode: config.mode as 'enforce' | 'monitor',
           regions: config.regions,
