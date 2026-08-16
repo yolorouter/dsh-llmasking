@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: [22, 24]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npx tsc -p tsconfig.json
+      - run: npm test
+      - run: npm run build
+      # Smoke the compiled artifact: it must load and register on a Context.
+      - run: node --input-type=module -e "import('./dist/index.js').then(m => { if (typeof m.apply !== 'function') process.exit(1) })"

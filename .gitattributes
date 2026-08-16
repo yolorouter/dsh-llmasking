@@ -1,0 +1,3 @@
+# Identical checkout bytes on every platform (see llmasking-ts for the
+# Windows-CI history that motivated this).
+* text=auto eol=lf
